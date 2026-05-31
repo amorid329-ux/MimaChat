@@ -655,5 +655,16 @@ def digitando(dados):
         emit("usuario_digitando", {"de": nome, "para": para}, broadcast=True, include_self=False)
 
 if __name__ == "__main__":
-    print("MimaChat V8 Premium rodando em http://127.0.0.1:5000")
-    socketio.run(app, host="127.0.0.1", port=5000, debug=True)
+    import os
+
+    porta = int(os.environ.get("PORT", 5000))
+
+    print(f"MimaChat rodando na porta {porta}")
+
+    socketio.run(app, host="0.0.0.0", port=porta, debug=False)
+
+socketio.run(
+    app,
+    host="0.0.0.0",
+    port=porta
+)
