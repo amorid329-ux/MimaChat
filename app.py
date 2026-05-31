@@ -661,10 +661,9 @@ if __name__ == "__main__":
 
     print(f"MimaChat rodando na porta {porta}")
 
-    socketio.run(app, host="0.0.0.0", port=porta, debug=False)
-
-socketio.run(
-    app,
-    host="0.0.0.0",
-    port=porta
-)
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=porta,
+        debug=False
+    )
