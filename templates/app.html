@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>MimaChat V8</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body class="{{ usuario['tema'] or 'escuro' }}">
+<div class="layout">
+<aside class="nav">
+<div class="brand"><div class="brand-ico">💬</div><div><h2>MimaChat</h2><p>{{ usuario["mima_id"] }}</p></div></div>
+<button class="nav-btn ativo" onclick="abrirTela('conversas', this)">💭 Conversas</button>
+<button class="nav-btn" onclick="abrirTela('amigos', this)">👥 Amigos</button>
+<button class="nav-btn" onclick="abrirTela('adicionar', this)">➕ Adicionar amigo</button>
+<button class="nav-btn" onclick="abrirTela('status', this)">🟢 Status</button>
+<button class="nav-btn" onclick="abrirTela('perfil', this)">🙋 Perfil</button>
+<button class="nav-btn" onclick="abrirTela('config', this)">⚙️ Configurações</button>
+<a class="sair" href="/sair">Sair</a>
+</aside>
+
+<main class="main">
+<section id="tela-conversas" class="tela ativa">
+<div class="topo"><div><h1>Conversas</h1><p>V8 Premium: áudio, reações, pesquisa, fixar e visualizado</p></div><input id="pesquisa" class="pesquisa" placeholder="Pesquisar conversa..." oninput="filtrarConversas()"></div>
+<div class="conteudo-chat">
+<div class="lista-conversas" id="listaConversas"></div>
+<div class="chat-box">
+<div id="chatVazio" class="chat-vazio"><h2>Chat vazio</h2><p>Adicione um amigo pelo ID para iniciar uma conversa.</p></div>
+<div id="chatAberto" class="chat-aberto escondido">
+<div class="chat-header">
+<div class="user-line" onclick="abrirPerfilUsuario(amigoAtual)"><div id="chatAvatar" class="avatar"></div><div><h2 id="chatNome"></h2><p id="chatStatus"></p><p id="digitando" class="digitando"></p></div></div>
+<div id="fixadaBox" class="fixada escondido"></div>
+</div>
+<div id="mensagens" class="mensagens"></div>
+<div id="previewArquivo" class="preview escondido"></div>
+<div class="enviar">
+<input id="campoArquivo" type="file" class="file-hidden" onchange="mostrarPreviewArquivo()">
+<button class="clip" onclick="document.getElementById('campoArquivo').click()">📎</button>
+<button id="btnAudio" class="clip" onclick="toggleAudio()">🎙️</button>
+<input id="campoMensagem" placeholder="Digite sua mensagem...">
+<button onclick="enviarPrivada()">Enviar</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section id="tela-amigos" class="tela"><h1>Amigos</h1><p>Gerencie amizades.</p><div id="listaAmigosCompleta" class="cards"></div><h2>Solicitações recebidas</h2><div id="solicitacoes" class="cards"></div></section>
+<section id="tela-adicionar" class="tela"><h1>Adicionar amigo</h1><p>Peça o ID da pessoa e envie um convite.</p><div class="painel"><label>Seu ID</label><div class="id-box"><strong id="meuId">{{ usuario["mima_id"] }}</strong><button onclick="copiarId()">Copiar</button></div><label>ID do amigo</label><input id="idAmigo" placeholder="Ex: MC-123456"><button onclick="adicionarAmigo()">Enviar convite</button><p id="msgAdicionar"></p></div></section>
+<section id="tela-status" class="tela"><h1>Status</h1><p>Controle como seus amigos veem você.</p><div class="painel"><h2>Aparecer online?</h2><label class="switch-line"><input type="checkbox" id="checkOnline" {% if usuario["aparecer_online"] == 1 %}checked{% endif %}><span>Mostrar meu status online para amigos</span></label><button onclick="salvarStatus()">Salvar status</button><p id="msgStatus"></p></div></section>
+<section id="tela-perfil" class="tela"><h1>Meu perfil</h1><p>Foto e bio aparecem quando alguém abre seu perfil.</p><div class="painel perfil-editor"><div class="preview-foto">{% if usuario["foto"] %}<img src="{{ usuario['foto'] }}">{% else %}<div class="avatar grande">{{ usuario["nome"][0]|upper }}</div>{% endif %}</div><form action="/api/atualizar-perfil" method="POST" enctype="multipart/form-data"><label>Trocar foto</label><input type="file" name="foto" accept="image/*"><label>Bio</label><textarea name="bio" maxlength="250" placeholder="Escreva algo sobre você...">{{ usuario["bio"] or "" }}</textarea><button>Salvar perfil</button></form></div></section>
+<section id="tela-config" class="tela"><h1>Configurações da conta</h1><p>Personalize sua conta.</p><div class="painel"><h2>Tema</h2><button onclick="trocarTema('escuro')">Tema escuro</button> <button onclick="trocarTema('claro')">Tema claro</button><h2>Alterar nome</h2><input id="novoNome" placeholder="Novo nome de usuário"><button onclick="alterarNome()">Alterar nome</button><p id="msgNome"></p><h2>Trocar senha</h2><input id="senhaAtual" type="password" placeholder="Senha atual"><input id="novaSenha" type="password" placeholder="Nova senha"><button onclick="trocarSenha()">Trocar senha</button><p id="msgSenha"></p></div></section>
+</main>
+</div>
+
+<div id="modalPerfil" class="modal escondido"><div class="modal-card"><button class="fechar" onclick="fecharModal()">×</button><div id="modalFoto" class="modal-foto"></div><h2 id="modalNome"></h2><p id="modalId"></p><p id="modalBio" class="bio"></p><p id="modalOnline"></p><button id="btnDesfazerModal" class="danger" onclick="desfazerAmizadeModal()">Desfazer amizade</button></div></div>
+
+<script>
+const socket = io();
+let amigosCache=[], amigoAtual=null, eu="{{ usuario['nome'] }}", amigoModal=null, typingTimer=null;
+let mediaRecorder=null, audioChunks=[], audioBlob=null;
+
+function abrirTela(nome, botao){document.querySelectorAll(".tela").forEach(t=>t.classList.remove("ativa"));document.getElementById("tela-"+nome).classList.add("ativa");document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("ativo"));if(botao)botao.classList.add("ativo");carregarTudo();}
+async function carregarTudo(){const r=await fetch("/api/amigos");const d=await r.json();amigosCache=d.amigos;renderConversas(d.amigos);renderAmigos(d.amigos,d.pendentes);atualizarFixada();}
+function fotoOuAvatar(u){if(u.foto)return `<img src="${u.foto}">`;return `<span>${u.nome[0].toUpperCase()}</span>`;}
+function renderConversas(amigos){const q=(document.getElementById("pesquisa")?.value||"").toLowerCase();const lista=document.getElementById("listaConversas");lista.innerHTML="";let filtrados=amigos.filter(a=>a.nome.toLowerCase().includes(q)||a.ultima.toLowerCase().includes(q));if(filtrados.length===0){lista.innerHTML=`<div class="empty-mini">Nenhuma conversa encontrada.</div>`;return;}filtrados.forEach(a=>{const item=document.createElement("div");item.className="conversa-item";item.onclick=()=>abrirChat(a.nome);item.innerHTML=`<div class="avatar pequeno">${fotoOuAvatar(a)}</div><div><strong>${a.nome}</strong><p>${a.fixada?"📌 ":""}${a.ultima||"Chat vazio"}</p></div>${a.nao_lidas>0?`<b class="badge-count">${a.nao_lidas}</b>`:""}<span class="${a.online?"dot on":"dot"}"></span>`;lista.appendChild(item);});}
+function filtrarConversas(){renderConversas(amigosCache);}
+function renderAmigos(amigos, pendentes){const lista=document.getElementById("listaAmigosCompleta");const sol=document.getElementById("solicitacoes");lista.innerHTML="";sol.innerHTML="";if(amigos.length===0)lista.innerHTML=`<div class="empty-card">Você ainda não tem amigos.</div>`;amigos.forEach(a=>{const card=document.createElement("div");card.className="friend-card";card.innerHTML=`<div class="user-line" onclick="abrirPerfilUsuario('${a.nome}')"><div class="avatar">${fotoOuAvatar(a)}</div><div><strong>${a.nome}</strong><p>${a.mima_id} • ${a.online?"Online":"Offline"}</p></div></div><div class="acoes"><button onclick="abrirChat('${a.nome}'); abrirTela('conversas', document.querySelector('.nav-btn'))">Conversar</button><button class="danger" onclick="desfazerAmizade('${a.nome}')">Desfazer amizade</button></div>`;lista.appendChild(card);});if(pendentes.length===0)sol.innerHTML=`<div class="empty-card">Nenhum convite pendente.</div>`;pendentes.forEach(p=>{const card=document.createElement("div");card.className="friend-card";card.innerHTML=`<div class="user-line" onclick="abrirPerfilUsuario('${p.nome}')"><div class="avatar">${p.foto?`<img src="${p.foto}">`:`<span>${p.nome[0].toUpperCase()}</span>`}</div><div><strong>${p.nome}</strong><p>${p.mima_id}</p></div></div><div class="acoes"><button onclick="aceitarAmigo(${p.id})">Aceitar</button><button class="danger" onclick="recusarAmigo(${p.id})">Recusar</button></div>`;sol.appendChild(card);});}
+async function abrirChat(nome){amigoAtual=nome;const amigo=amigosCache.find(a=>a.nome===nome);document.getElementById("chatVazio").classList.add("escondido");document.getElementById("chatAberto").classList.remove("escondido");document.getElementById("chatNome").innerText=nome;document.getElementById("chatStatus").innerText=amigo&&amigo.online?"Online":"Offline";document.getElementById("chatAvatar").innerHTML=amigo?fotoOuAvatar(amigo):nome[0].toUpperCase();atualizarFixada();const r=await fetch("/api/mensagens/"+encodeURIComponent(nome));const msgs=await r.json();const box=document.getElementById("mensagens");box.innerHTML="";if(msgs.length===0){box.innerHTML=`<div class="chat-vazio menor"><h2>Chat vazio</h2><p>Mande a primeira mensagem.</p></div>`;carregarTudo();return;}msgs.forEach(addMensagem);box.scrollTop=box.scrollHeight;carregarTudo();}
+function atualizarFixada(){if(!amigoAtual)return;const amigo=amigosCache.find(a=>a.nome===amigoAtual);const box=document.getElementById("fixadaBox");if(amigo&&amigo.fixada){box.innerHTML="📌 "+(amigo.fixada.texto||"Mensagem fixada");box.classList.remove("escondido");}else box.classList.add("escondido");}
+function addMensagem(m){const box=document.getElementById("mensagens");const div=document.createElement("div");div.className="msg "+(m.remetente===eu?"minha":"dele")+(m.fixada?" fixada-msg":"");div.id="msg-"+m.id;if(m.apagada){div.innerHTML=`<p><i>Mensagem apagada</i></p><span>${m.criado_em}</span>`;box.appendChild(div);return;}let conteudo="";if(m.texto)conteudo+=`<p class="texto-msg">${escapeHtml(m.texto)}</p>`;if(m.audio)conteudo+=`<audio controls src="${m.audio}"></audio>`;if(m.arquivo){if(m.arquivo_tipo==="imagem")conteudo+=`<a href="${m.arquivo}" target="_blank"><img class="img-chat" src="${m.arquivo}"></a>`;else conteudo+=`<a class="arquivo-chat" href="${m.arquivo}" target="_blank">📎 ${m.arquivo_nome}</a>`;}let visto=m.remetente===eu?` • ✓✓`:"";let reacao=m.reacao?`<div class="reacao">${m.reacao}</div>`:"";let acoes=`<div class="msg-acoes"><button onclick="reagir(${m.id},'👍')">👍</button><button onclick="reagir(${m.id},'❤️')">❤️</button><button onclick="reagir(${m.id},'😂')">😂</button><button onclick="fixarMensagem(${m.id})">📌</button>${m.remetente===eu?`<button onclick="editarMensagem(${m.id})">Editar</button><button onclick="apagarMensagem(${m.id})">Apagar</button>`:""}</div>`;div.innerHTML=`${conteudo}${reacao}<span>${m.criado_em}${m.editada?" • editada":""}${visto}</span>${acoes}`;box.appendChild(div);}
+function escapeHtml(t){return t.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));}
+function mostrarPreviewArquivo(){const f=document.getElementById("campoArquivo").files[0];const p=document.getElementById("previewArquivo");if(!f){p.classList.add("escondido");return;}p.innerHTML=`📎 Arquivo selecionado: <b>${f.name}</b> <button onclick="limparArquivo()">remover</button>`;p.classList.remove("escondido");}
+function limparArquivo(){document.getElementById("campoArquivo").value="";document.getElementById("previewArquivo").classList.add("escondido");}
+async function enviarPrivada(){const campo=document.getElementById("campoMensagem");const arquivo=document.getElementById("campoArquivo").files[0];const texto=campo.value.trim();if(!texto&&!arquivo&&!audioBlob||!amigoAtual)return;const fd=new FormData();fd.append("para",amigoAtual);fd.append("texto",texto);if(arquivo)fd.append("arquivo",arquivo);if(audioBlob)fd.append("audio",audioBlob,"voz.webm");await fetch("/api/upload-chat",{method:"POST",body:fd});campo.value="";audioBlob=null;document.getElementById("btnAudio").innerText="🎙️";limparArquivo();}
+async function toggleAudio(){if(mediaRecorder&&mediaRecorder.state==="recording"){mediaRecorder.stop();document.getElementById("btnAudio").innerText="✅";return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});audioChunks=[];mediaRecorder=new MediaRecorder(stream);mediaRecorder.ondataavailable=e=>audioChunks.push(e.data);mediaRecorder.onstop=()=>{audioBlob=new Blob(audioChunks,{type:"audio/webm"});stream.getTracks().forEach(t=>t.stop());};mediaRecorder.start();document.getElementById("btnAudio").innerText="⏹️";}catch(e){alert("Não consegui acessar o microfone.");}}
+socket.on("nova_mensagem_privada",function(m){if((m.remetente===eu&&m.destinatario===amigoAtual)||(m.remetente===amigoAtual&&m.destinatario===eu)){const vazio=document.querySelector("#mensagens .chat-vazio");if(vazio)document.getElementById("mensagens").innerHTML="";addMensagem(m);document.getElementById("mensagens").scrollTop=document.getElementById("mensagens").scrollHeight;}else if(m.destinatario===eu){if("Notification" in window&&Notification.permission==="granted"){new Notification("Nova mensagem de "+m.remetente,{body:m.texto||m.arquivo_nome||"Mensagem de voz"});}}carregarTudo();});
+socket.on("mensagem_editada",m=>{const el=document.getElementById("msg-"+m.id);if(el){const t=el.querySelector(".texto-msg");if(t)t.innerText=m.texto;}});
+socket.on("mensagem_apagada",m=>{const el=document.getElementById("msg-"+m.id);if(el)el.innerHTML="<p><i>Mensagem apagada</i></p>";});
+socket.on("mensagem_reagida",m=>{const el=document.getElementById("msg-"+m.id);if(el){let r=el.querySelector(".reacao");if(!r){r=document.createElement("div");r.className="reacao";el.appendChild(r);}r.innerText=m.reacao;}});
+socket.on("mensagem_fixada",()=>carregarTudo());
+socket.on("usuario_digitando",d=>{if(d.para===eu&&d.de===amigoAtual){const el=document.getElementById("digitando");el.innerText=d.de+" está digitando...";clearTimeout(typingTimer);typingTimer=setTimeout(()=>el.innerText="",1800);}});
+socket.on("usuarios_online",carregarTudo);
+document.getElementById("campoMensagem").addEventListener("keydown",e=>{if(e.key==="Enter")enviarPrivada();else if(amigoAtual)socket.emit("digitando",{para:amigoAtual});});
+async function editarMensagem(id){const novo=prompt("Editar mensagem:");if(!novo)return;await fetch("/api/editar-mensagem",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,texto:novo})});}
+async function apagarMensagem(id){if(!confirm("Apagar mensagem?"))return;await fetch("/api/apagar-mensagem",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});}
+async function reagir(id,reacao){await fetch("/api/reagir-mensagem",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,reacao})});}
+async function fixarMensagem(id){await fetch("/api/fixar-mensagem",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,amigo:amigoAtual})});}
+async function adicionarAmigo(){const id=document.getElementById("idAmigo").value;const r=await fetch("/api/adicionar-amigo",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mima_id:id})});const d=await r.json();document.getElementById("msgAdicionar").innerText=d.msg;document.getElementById("idAmigo").value="";carregarTudo();}
+async function aceitarAmigo(id){await fetch("/api/aceitar-amigo",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});carregarTudo();}
+async function recusarAmigo(id){await fetch("/api/recusar-amigo",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});carregarTudo();}
+async function desfazerAmizade(nome){if(!confirm("Deseja desfazer amizade com "+nome+"?"))return;await fetch("/api/desfazer-amizade",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({nome})});carregarTudo();}
+async function abrirPerfilUsuario(nome){if(!nome)return;const r=await fetch("/api/perfil/"+encodeURIComponent(nome));const p=await r.json();if(!p.ok)return;amigoModal=p.nome;document.getElementById("modalNome").innerText=p.nome;document.getElementById("modalId").innerText=p.mima_id;document.getElementById("modalBio").innerText=p.bio;document.getElementById("modalOnline").innerText=p.online?"🟢 Online":"⚫ Offline";document.getElementById("modalFoto").innerHTML=p.foto?`<img src="${p.foto}">`:`<div class="avatar enorme">${p.nome[0].toUpperCase()}</div>`;document.getElementById("btnDesfazerModal").style.display=p.amigo?"block":"none";document.getElementById("modalPerfil").classList.remove("escondido");}
+function fecharModal(){document.getElementById("modalPerfil").classList.add("escondido");}
+function desfazerAmizadeModal(){if(amigoModal){fecharModal();desfazerAmizade(amigoModal);}}
+function copiarId(){navigator.clipboard.writeText(document.getElementById("meuId").innerText);alert("ID copiado!");}
+async function salvarStatus(){const aparecer_online=document.getElementById("checkOnline").checked;await fetch("/api/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({aparecer_online})});document.getElementById("msgStatus").innerText="Status salvo.";carregarTudo();}
+async function trocarTema(tema){await fetch("/api/tema",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tema})});document.body.className=tema;}
+async function alterarNome(){const novo_nome=document.getElementById("novoNome").value;const r=await fetch("/api/alterar-nome",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({novo_nome})});const d=await r.json();document.getElementById("msgNome").innerText=d.msg;if(d.ok)setTimeout(()=>location.reload(),800);}
+async function trocarSenha(){const senha_atual=document.getElementById("senhaAtual").value;const nova_senha=document.getElementById("novaSenha").value;const r=await fetch("/api/trocar-senha",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({senha_atual,nova_senha})});const d=await r.json();document.getElementById("msgSenha").innerText=d.msg;}
+if("Notification" in window&&Notification.permission==="default")Notification.requestPermission();
+carregarTudo();
+</script>
+</body>
+</html>

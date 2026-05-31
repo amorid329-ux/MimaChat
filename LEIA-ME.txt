@@ -1,0 +1,25 @@
+MimaChat V8 Premium
+
+NOVIDADES:
+- Mensagem de voz pelo microfone
+- Reações nas mensagens: 👍 ❤️ 😂
+- Pesquisa de conversas
+- Mensagem fixada no topo
+- Tema claro/escuro
+- Indicador visualizado ✓✓
+- Alterar nome de usuário
+- Mantém recursos anteriores: amigos por ID, perfil, bio, foto, arquivos, imagens, status, editar/apagar mensagem
+
+COMO RODAR:
+1. Extraia o ZIP.
+2. Abra o terminal dentro da pasta.
+3. Execute:
+   pip install -r requirements.txt
+4. Execute:
+   python app.py
+5. Abra:
+   http://127.0.0.1:5000
+
+OBS:
+Para gravar áudio, o navegador pode pedir permissão para usar o microfone.
+Se vier de uma versão antiga e der erro no banco, apague o arquivo mimachat.db e rode novamente.
